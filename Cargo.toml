@@ -1,0 +1,13 @@
+[package]
+name = "boule"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+eframe = "0.27.2"
+egui = "0.27.2"
+env_logger = "0.11.3"
+rand = { version = "0.8.5" }
+getrandom = { version = "0.2.15" , features = ["js"] }
+log = "0.4.21"
+wasm-bindgen-futures = "0.4.42"
