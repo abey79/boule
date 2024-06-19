@@ -16,7 +16,6 @@ fn run_native() -> Result<(), eframe::Error> {
     eframe::run_native("boule", options, Box::new(|_cc| Box::<BouleApp>::default()))
 }
 
-
 #[cfg(target_arch = "wasm32")]
 fn run_web() -> Result<(), eframe::Error> {
     // Redirect `log` message to `console.log` and friends:
@@ -38,7 +37,6 @@ fn run_web() -> Result<(), eframe::Error> {
     Ok(())
 }
 
-
 fn main() -> Result<(), eframe::Error> {
     #[cfg(not(target_arch = "wasm32"))]
     return run_native();
@@ -48,20 +46,53 @@ fn main() -> Result<(), eframe::Error> {
 }
 
 const BALL_COLORS: &[egui::Color32] = &[
-    egui::Color32::RED,
-    egui::Color32::GREEN,
-    egui::Color32::BLUE,
-    egui::Color32::YELLOW,
-    egui::Color32::BROWN,
-    egui::Color32::KHAKI,
-    egui::Color32::LIGHT_RED,
-    egui::Color32::LIGHT_GREEN,
-    egui::Color32::LIGHT_BLUE,
-    egui::Color32::LIGHT_YELLOW,
-    egui::Color32::GOLD,
-    egui::Color32::BLACK,
-    egui::Color32::DARK_BLUE,
+    // from https://colorkit.co/palette/ffef3e-ffa0c5-a98467-32dba9-ffa600-c7522a-476f95-ffd380-893f71-92ba92/
+    egui::Color32::from_rgb(255, 239, 62),  // #ffef3e
+    egui::Color32::from_rgb(255, 160, 197), // #ffa0c5
+    egui::Color32::from_rgb(169, 132, 103), // #a98467
+    egui::Color32::from_rgb(50, 219, 169),  // #32dba9
+    egui::Color32::from_rgb(255, 166, 0),   // #ffa600
+    egui::Color32::from_rgb(199, 82, 42),   // #c7522a
+    egui::Color32::from_rgb(71, 111, 149),  // #476f95
+    egui::Color32::from_rgb(255, 211, 128), // #ffd380
+    egui::Color32::from_rgb(137, 63, 113),  // #893f71
+    egui::Color32::from_rgb(146, 186, 146), // #92ba92
 ];
+
+enum BallTheme {
+    Plain,
+    Hole,
+}
+
+impl BallTheme {
+    pub fn from_index(index: usize) -> Self {
+        match index % 2 {
+            0 => BallTheme::Plain,
+            1 => BallTheme::Hole,
+            _ => unreachable!(),
+        }
+    }
+}
+
+struct BallStyle {
+    color: egui::Color32,
+    theme: BallTheme,
+}
+
+impl BallStyle {
+    const MAX_STYLES: usize = BALL_COLORS.len() * 2;
+
+    pub fn paint(&self, painter: &egui::Painter, pos: egui::Pos2) {
+        match self.theme {
+            BallTheme::Plain => {
+                painter.circle_filled(pos, 12.0, self.color);
+            }
+            BallTheme::Hole => {
+                painter.circle_stroke(pos, 8.0, (8.0, self.color));
+            }
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Slot {
@@ -70,10 +101,16 @@ enum Slot {
 }
 
 impl Slot {
-    pub fn color(&self) -> egui::Color32 {
+    pub fn color(&self) -> BallStyle {
         match self {
-            Slot::Empty => egui::Color32::BLACK.gamma_multiply(0.02),
-            Slot::Ball(color_idx) => BALL_COLORS[*color_idx],
+            Slot::Empty => BallStyle {
+                color: egui::Color32::BLACK.gamma_multiply(0.02),
+                theme: BallTheme::Plain,
+            },
+            Slot::Ball(color_idx) => BallStyle {
+                color: BALL_COLORS[*color_idx % BALL_COLORS.len()],
+                theme: BallTheme::from_index(*color_idx / BALL_COLORS.len()),
+            },
         }
     }
 }
@@ -81,6 +118,7 @@ impl Slot {
 struct State {
     column_count: usize,
     column_capacity: usize,
+    play_count: usize,
     slots: Vec<Slot>,
 }
 
@@ -90,7 +128,7 @@ impl State {
         let color_count = column_count.saturating_sub(1);
         for col in 0..color_count {
             for row in 0..column_capacity {
-                slots[col * column_capacity + row] = Slot::Ball(col % BALL_COLORS.len());
+                slots[col * column_capacity + row] = Slot::Ball(col);
             }
         }
 
@@ -99,6 +137,7 @@ impl State {
         Self {
             column_count,
             column_capacity,
+            play_count: 0,
             slots,
         }
     }
@@ -107,17 +146,38 @@ impl State {
         self.slots[column * self.column_capacity + row]
     }
 
-    pub fn slot_mut(&mut self, row: usize, column: usize) -> &mut Slot {
+    fn slot_mut(&mut self, row: usize, column: usize) -> &mut Slot {
         &mut self.slots[column * self.column_capacity + row]
     }
 
-    pub fn is_winning(&self) -> bool {
-        (0..self.column_count).into_iter().all(|col| {
+    pub fn move_ball(&mut self, from_column: usize, to_column: usize) {
+        if from_column == to_column {
+            return;
+        }
+
+        if let (Some(from_row), Some(to_row)) =
+            (self.first_ball(from_column), self.first_empty(to_column))
+        {
+            let ball = self.slot(from_row, from_column);
+            self.slot_mut(to_row, to_column).clone_from(&ball);
+            self.slot_mut(from_row, from_column)
+                .clone_from(&Slot::Empty);
+            self.play_count += 1;
+        }
+    }
+
+    // return play count if winning
+    pub fn is_winning(&self) -> Option<usize> {
+        if (0..self.column_count).into_iter().all(|col| {
             let first = self.slot(0, col);
             (1..self.column_capacity)
                 .into_iter()
                 .all(|row| self.slot(row, col) == first)
-        })
+        }) {
+            Some(self.play_count)
+        } else {
+            None
+        }
     }
 
     pub fn is_top(&self, row: usize, column: usize) -> bool {
@@ -134,6 +194,12 @@ impl State {
             .find(|&row| self.slot(row, column) == Slot::Empty)
     }
 
+    pub fn first_ball(&self, column: usize) -> Option<usize> {
+        (0..self.column_capacity)
+            .into_iter()
+            .find(|&row| self.slot(row, column) != Slot::Empty)
+    }
+
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         egui::Grid::new("board")
             .num_columns(self.column_count)
@@ -148,44 +214,31 @@ impl State {
                             ui.allocate_painter(vec2(30.0, 30.0), Sense::drag());
 
                         if is_top {
-                            response.dnd_set_drag_payload((row, col));
+                            response.dnd_set_drag_payload(col);
                         }
 
-                        let other: Option<Arc<(usize, usize)>> = response.dnd_release_payload();
-                        if let Some(other) = other {
-                            if *slot == Slot::Empty && col != other.1 {
-                                let other_slot = self.slot(other.0, other.1);
-                                self.slot_mut(self.first_empty(col).unwrap(), col)
-                                    .clone_from(&other_slot);
-                                self.slot_mut(other.0, other.1).clone_from(&Slot::Empty);
-                            }
+                        let other: Option<Arc<usize>> = response.dnd_release_payload();
+                        if let Some(other_col) = other {
+                            self.move_ball(*other_col, col);
                         }
 
                         // check if we're being dragged
-                        let being_dragged = if let Some(ball) =
-                            egui::DragAndDrop::payload::<(usize, usize)>(ui.ctx())
+                        let being_dragged = if let Some(dragged_col) =
+                            egui::DragAndDrop::payload::<usize>(ui.ctx())
                         {
-                            *ball == (row, col)
+                            if let Some(dragged_row) = self.first_ball(*dragged_col) {
+                                (row, col) == (dragged_row, *dragged_col)
+                            } else {
+                                false
+                            }
                         } else {
                             false
                         };
 
-                        painter.circle_filled(
-                            response.rect.center(),
-                            12.0,
-                            if being_dragged {
-                                Slot::Empty.color()
-                            } else {
-                                slot.color()
-                            },
-                        );
-
-                        if is_top && !being_dragged {
-                            painter.circle_stroke(
-                                response.rect.center(),
-                                9.0,
-                                (2.0, egui::Color32::WHITE.gamma_multiply(0.5)),
-                            );
+                        if being_dragged {
+                            Slot::Empty.color().paint(&painter, response.rect.center());
+                        } else {
+                            slot.color().paint(&painter, response.rect.center());
                         }
                     }
 
@@ -193,10 +246,13 @@ impl State {
                 }
             });
 
-        if let Some(ball) = egui::DragAndDrop::payload::<(usize, usize)>(ui.ctx()) {
-            if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
-                ui.painter()
-                    .circle_filled(pos, 12.0, self.slot(ball.0, ball.1).color());
+        if let Some(dragged_col) = egui::DragAndDrop::payload::<usize>(ui.ctx()) {
+            if let Some(dragged_row) = self.first_ball(*dragged_col) {
+                if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
+                    self.slot(dragged_row, *dragged_col)
+                        .color()
+                        .paint(ui.painter(), pos);
+                }
             }
         }
     }
@@ -218,28 +274,14 @@ impl Default for BouleApp {
     }
 }
 
-// pub trait BoostedApp: eframe::App {
-//     fn boosted_update();
-//
-//     fn util(&self) -> bool{
-//         self.persist_egui_memory()
-//     }
-// }
-//
-// impl BoostedApp for BouleApp {
-//     fn boosted_update() {
-//         todo!()
-//     }
-// }
-
-
 impl eframe::App for BouleApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
             egui::Grid::new("config").num_columns(2).show(ui, |ui| {
                 ui.label("Column count:");
                 ui.add(
-                    egui::DragValue::new(&mut self.column_count).clamp_range(1..=BALL_COLORS.len()),
+                    egui::DragValue::new(&mut self.column_count)
+                        .clamp_range(1..=(BallStyle::MAX_STYLES + 1)),
                 );
                 ui.end_row();
 
@@ -256,10 +298,10 @@ impl eframe::App for BouleApp {
 
             self.state.ui(ui);
 
-            if self.state.is_winning() {
+            if let Some(play_count) = self.state.is_winning() {
                 ui.add_space(12.0);
                 ui.label(
-                    egui::RichText::new("You won!")
+                    egui::RichText::new(format!("You won in {} moves!", play_count))
                         .color(egui::Color32::RED)
                         .size(24.0)
                         .strong(),
