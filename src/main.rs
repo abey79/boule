@@ -2,7 +2,7 @@
 #![allow(rustdoc::missing_crate_level_docs)] // it's an example
 
 use eframe::{egui, Storage};
-use egui::{vec2, Sense};
+use egui::{vec2, NumExt, Sense};
 use rand::seq::SliceRandom;
 use std::sync::Arc;
 use std::time::Duration;
@@ -118,10 +118,10 @@ enum Slot {
 }
 
 impl Slot {
-    pub fn color(&self) -> BallStyle {
+    pub fn color(&self, ctx: &egui::Context) -> BallStyle {
         match self {
             Slot::Empty => BallStyle {
-                color: egui::Color32::BLACK.gamma_multiply(0.02),
+                color: ctx.style().visuals.code_bg_color,
                 theme: BallTheme::Plain,
             },
             Slot::Ball(color_idx) => BallStyle {
@@ -219,56 +219,68 @@ impl State {
     }
 
     pub fn ui(&mut self, ui: &mut egui::Ui) {
-        egui::Grid::new("board")
-            .num_columns(self.column_count)
-            .spacing(egui::Vec2::ZERO)
-            .show(ui, |ui| {
-                for row in 0..self.column_capacity {
-                    for col in 0..self.column_count {
-                        let slot = &self.slot(row, col);
-                        let is_top = self.is_top(row, col);
+        ui.allocate_ui(
+            vec2(
+                30.0 * self.column_count as f32,
+                30.0 * self.column_capacity as f32,
+            ),
+            |ui| {
+                egui::Grid::new("board")
+                    .min_col_width(30.0)
+                    .max_col_width(30.0)
+                    .num_columns(self.column_count)
+                    .spacing(egui::Vec2::ZERO)
+                    .show(ui, |ui| {
+                        for row in 0..self.column_capacity {
+                            for col in 0..self.column_count {
+                                let slot = &self.slot(row, col);
+                                let is_top = self.is_top(row, col);
 
-                        let (response, painter) =
-                            ui.allocate_painter(vec2(30.0, 30.0), Sense::drag());
+                                let (response, painter) =
+                                    ui.allocate_painter(vec2(30.0, 30.0), Sense::drag());
 
-                        if is_top {
-                            response.dnd_set_drag_payload(col);
-                        }
+                                if is_top {
+                                    response.dnd_set_drag_payload(col);
+                                }
 
-                        let other: Option<Arc<usize>> = response.dnd_release_payload();
-                        if let Some(other_col) = other {
-                            self.move_ball(*other_col, col);
-                        }
+                                let other: Option<Arc<usize>> = response.dnd_release_payload();
+                                if let Some(other_col) = other {
+                                    self.move_ball(*other_col, col);
+                                }
 
-                        // check if we're being dragged
-                        let being_dragged = if let Some(dragged_col) =
-                            egui::DragAndDrop::payload::<usize>(ui.ctx())
-                        {
-                            if let Some(dragged_row) = self.first_ball(*dragged_col) {
-                                (row, col) == (dragged_row, *dragged_col)
-                            } else {
-                                false
+                                // check if we're being dragged
+                                let being_dragged = if let Some(dragged_col) =
+                                    egui::DragAndDrop::payload::<usize>(ui.ctx())
+                                {
+                                    if let Some(dragged_row) = self.first_ball(*dragged_col) {
+                                        (row, col) == (dragged_row, *dragged_col)
+                                    } else {
+                                        false
+                                    }
+                                } else {
+                                    false
+                                };
+
+                                if being_dragged {
+                                    Slot::Empty
+                                        .color(ui.ctx())
+                                        .paint(&painter, response.rect.center());
+                                } else {
+                                    slot.color(ui.ctx()).paint(&painter, response.rect.center());
+                                }
                             }
-                        } else {
-                            false
-                        };
 
-                        if being_dragged {
-                            Slot::Empty.color().paint(&painter, response.rect.center());
-                        } else {
-                            slot.color().paint(&painter, response.rect.center());
+                            ui.end_row();
                         }
-                    }
-
-                    ui.end_row();
-                }
-            });
+                    });
+            },
+        );
 
         if let Some(dragged_col) = egui::DragAndDrop::payload::<usize>(ui.ctx()) {
             if let Some(dragged_row) = self.first_ball(*dragged_col) {
                 if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
                     self.slot(dragged_row, *dragged_col)
-                        .color()
+                        .color(ui.ctx())
                         .paint(ui.painter(), pos);
                 }
             }
@@ -302,51 +314,18 @@ impl eframe::App for BouleApp {
         egui::CentralPanel::default().show(ctx, |ui| {
             let old_self = self.clone();
 
-            let mut reset = false;
-            if let Some(state) = &mut self.state {
-                state.ui(ui);
-
-                reset = if let Some(play_count) = state.is_winning() {
-                    ui.add_space(12.0);
-                    ui.label(
-                        egui::RichText::new(format!("You won in {} moves!", play_count))
-                            .color(egui::Color32::RED)
-                            .size(24.0)
-                            .strong(),
-                    );
-                    ui.button("Restart").clicked()
-                } else {
-                    ui.button("Abort").clicked()
-                };
+            let reset = if let Some(state) = &mut self.state {
+                game_ui(ui, state)
             } else {
-                egui::Grid::new("config").num_columns(2).show(ui, |ui| {
-                    ui.label("Column count:");
-                    ui.add(
-                        egui::DragValue::new(&mut self.column_count)
-                            .clamp_range(1..=(BallStyle::MAX_STYLES + 1)),
-                    );
-                    ui.end_row();
-
-                    ui.label("Column capacity:");
-                    ui.add(egui::DragValue::new(&mut self.column_capacity).clamp_range(2..=20));
-                    ui.end_row();
-
-                    ui.horizontal(|_| {});
-                    if ui
-                        .button(egui::RichText::new("Start").strong().size(18.0))
-                        .clicked()
-                    {
-                        self.state = Some(State::new(self.column_count, self.column_capacity));
-                    }
-                    ui.end_row();
-                });
-            }
+                self.setup_ui(ui);
+                false
+            };
 
             if reset {
                 self.state = None;
             }
 
-            // trigger saving if state changed
+            // aggressive auto-save
             if *self != old_self {
                 self.auto_save = true;
             }
@@ -365,4 +344,88 @@ impl eframe::App for BouleApp {
             Duration::from_secs(30)
         }
     }
+}
+
+impl BouleApp {
+    fn setup_ui(&mut self, ui: &mut egui::Ui) {
+        ui.vertical_centered(|ui| {
+            ui.style_mut().wrap = Some(true);
+
+            ui.strong("Colors:");
+            let mut color_count = self.column_count.saturating_sub(1);
+            selectable_label_range(ui, 3..=BallStyle::MAX_STYLES + 1, &mut color_count);
+            self.column_count = color_count + 1;
+
+            ui.add_space(12.0);
+
+            ui.strong("Height");
+            selectable_label_range(ui, 2..=20, &mut self.column_capacity);
+
+            ui.add_space(12.0);
+
+            if ui.button(egui::RichText::new("START").strong()).clicked() {
+                self.state = Some(State::new(self.column_count, self.column_capacity));
+            }
+
+            footer_ui(ui);
+        });
+    }
+}
+
+fn selectable_label_range(
+    ui: &mut egui::Ui,
+    range: std::ops::RangeInclusive<usize>,
+    value: &mut usize,
+) {
+    let width = 400.0.at_most(ui.available_width());
+    ui.allocate_ui_with_layout(
+        vec2(width, 0.0),
+        egui::Layout::left_to_right(egui::Align::TOP).with_main_wrap(true),
+        |ui| {
+            for i in range.into_iter() {
+                if ui.selectable_label(*value == i, format!("{}", i)).clicked() {
+                    *value = i;
+                }
+            }
+        },
+    );
+}
+
+fn game_ui(ui: &mut egui::Ui, state: &mut State) -> bool {
+    ui.vertical_centered(|ui| {
+        state.ui(ui);
+
+        ui.add_space(12.0);
+
+        let reset = if let Some(play_count) = state.is_winning() {
+            ui.label(
+                egui::RichText::new(format!("You won in {} moves!", play_count))
+                    .color(egui::Color32::RED)
+                    .size(24.0)
+                    .strong(),
+            );
+            ui.add_space(12.0);
+            ui.button("Restart").clicked()
+        } else {
+            ui.button("Abort").clicked()
+        };
+
+        footer_ui(ui);
+
+        reset
+    })
+    .inner
+}
+
+fn footer_ui(ui: &mut egui::Ui) {
+    ui.add_space(20.0);
+    ui.hyperlink_to(
+        egui::RichText::new("Made by abey79").weak(),
+        "https://twitter.com/abey79/",
+    );
+
+    ui.hyperlink_to(
+        egui::RichText::new("(source)").weak(),
+        "https://github.com/abey79/boule/",
+    );
 }
