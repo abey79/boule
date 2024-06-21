@@ -7,13 +7,13 @@
 
 <head>
     <!-- change this to your project name -->
-    <title>eframe template</title>
+    <title>boule</title>
 
     <!-- config for our rust wasm binary. go to https://trunkrs.dev/assets/#rust for more customization -->
     
-<script type="module" nonce="B/RRNDkLwLISO6rO29InFw==">
-import init, * as bindings from '/boule/boule-c50efd9c52df94db.js';
-const wasm = await init('/boule/boule-c50efd9c52df94db_bg.wasm');
+<script type="module" nonce="3WDGeITPJIHaBdpWjj4T1w==">
+import init, * as bindings from '/boule/boule-e01233043abea009.js';
+const wasm = await init('/boule/boule-e01233043abea009_bg.wasm');
 
 
 window.wasmBindings = bindings;
@@ -128,8 +128,8 @@ dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
 
     </style>
 
-<link rel="modulepreload" href="/boule/boule-c50efd9c52df94db.js" crossorigin=anonymous integrity="sha384-D057hoUEM5721sv1lUzoyDatxHwf8I9/dAIOB+Gmh4iO2Hx3MQTfxLOMOhYj/Lh2">
-<link rel="preload" href="/boule/boule-c50efd9c52df94db_bg.wasm" crossorigin=anonymous integrity="sha384-NN/TzY5182lOBGmKdROpfWdl1zKarR3jy0kNIvpB2aV+GEs2qzX/Z3AEuLmXZqHn" as="fetch" type="application/wasm"></head>
+<link rel="modulepreload" href="/boule/boule-e01233043abea009.js" crossorigin=anonymous integrity="sha384-L7ecdM1ZAHcpqIu4bu6UGwI4Ext2iQXC0I1WTaFXGPbcJbMVb7okp2P+rhLTohKM">
+<link rel="preload" href="/boule/boule-e01233043abea009_bg.wasm" crossorigin=anonymous integrity="sha384-/GXWeIfKjCpX8uljnZBFvLr9oNAShxrBB5jLlaBQF2247Kh7L5gr/2TiKQfGTYzk" as="fetch" type="application/wasm"></head>
 
 <body>
 <!-- The WASM code will resize the canvas dynamically -->
