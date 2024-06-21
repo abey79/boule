@@ -261,7 +261,7 @@ impl State {
 struct BouleApp {
     column_count: usize,
     column_capacity: usize,
-    state: State,
+    state: Option<State>,
 }
 
 impl Default for BouleApp {
@@ -269,7 +269,7 @@ impl Default for BouleApp {
         Self {
             column_count: 7,
             column_capacity: 7,
-            state: State::new(7, 7),
+            state: None,
         }
     }
 }
@@ -277,35 +277,48 @@ impl Default for BouleApp {
 impl eframe::App for BouleApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
-            egui::Grid::new("config").num_columns(2).show(ui, |ui| {
-                ui.label("Column count:");
-                ui.add(
-                    egui::DragValue::new(&mut self.column_count)
-                        .clamp_range(1..=(BallStyle::MAX_STYLES + 1)),
-                );
-                ui.end_row();
+            let mut reset = false;
+            if let Some(state) = &mut self.state {
+                state.ui(ui);
 
-                ui.label("Column capacity:");
-                ui.add(egui::DragValue::new(&mut self.column_capacity).clamp_range(2..=20));
-                ui.end_row();
+                reset = if let Some(play_count) = state.is_winning() {
+                    ui.add_space(12.0);
+                    ui.label(
+                        egui::RichText::new(format!("You won in {} moves!", play_count))
+                            .color(egui::Color32::RED)
+                            .size(24.0)
+                            .strong(),
+                    );
+                    ui.button("Restart").clicked()
+                } else {
+                    ui.button("Abort").clicked()
+                };
+            } else {
+                egui::Grid::new("config").num_columns(2).show(ui, |ui| {
+                    ui.label("Column count:");
+                    ui.add(
+                        egui::DragValue::new(&mut self.column_count)
+                            .clamp_range(1..=(BallStyle::MAX_STYLES + 1)),
+                    );
+                    ui.end_row();
 
-                ui.horizontal(|_| {});
-                if ui.button("Reset").clicked() {
-                    self.state = State::new(self.column_count, self.column_capacity);
-                }
-                ui.end_row();
-            });
+                    ui.label("Column capacity:");
+                    ui.add(egui::DragValue::new(&mut self.column_capacity).clamp_range(2..=20));
+                    ui.end_row();
 
-            self.state.ui(ui);
+                    ui.horizontal(|_| {});
+                    if ui
+                        .button(egui::RichText::new("Start").strong().size(18.0))
+                        .clicked()
+                    {
+                        self.state = Some(State::new(self.column_count, self.column_capacity));
+                    }
+                    ui.end_row();
+                });
+            }
 
-            if let Some(play_count) = self.state.is_winning() {
-                ui.add_space(12.0);
-                ui.label(
-                    egui::RichText::new(format!("You won in {} moves!", play_count))
-                        .color(egui::Color32::RED)
-                        .size(24.0)
-                        .strong(),
-                );
+            if reset {
+                self.state = None;
             }
         });
     }
