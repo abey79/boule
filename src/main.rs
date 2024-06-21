@@ -5,6 +5,7 @@ use eframe::{egui, Storage};
 use egui::{vec2, Sense};
 use rand::seq::SliceRandom;
 use std::sync::Arc;
+use std::time::Duration;
 
 #[cfg(not(target_arch = "wasm32"))]
 fn run_native() -> Result<(), eframe::Error> {
@@ -131,7 +132,7 @@ impl Slot {
     }
 }
 
-#[derive(serde::Deserialize, serde::Serialize)]
+#[derive(Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 struct State {
     column_count: usize,
     column_capacity: usize,
@@ -275,11 +276,14 @@ impl State {
     }
 }
 
-#[derive(serde::Deserialize, serde::Serialize)]
+#[derive(Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 struct BouleApp {
     column_count: usize,
     column_capacity: usize,
     state: Option<State>,
+
+    #[serde(skip)]
+    auto_save: bool,
 }
 
 impl Default for BouleApp {
@@ -288,6 +292,7 @@ impl Default for BouleApp {
             column_count: 7,
             column_capacity: 7,
             state: None,
+            auto_save: false,
         }
     }
 }
@@ -295,6 +300,8 @@ impl Default for BouleApp {
 impl eframe::App for BouleApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
+            let old_self = self.clone();
+
             let mut reset = false;
             if let Some(state) = &mut self.state {
                 state.ui(ui);
@@ -338,10 +345,24 @@ impl eframe::App for BouleApp {
             if reset {
                 self.state = None;
             }
+
+            // trigger saving if state changed
+            if *self != old_self {
+                self.auto_save = true;
+            }
         });
     }
 
     fn save(&mut self, storage: &mut dyn Storage) {
         eframe::set_value(storage, "__app__", self);
+        self.auto_save = false;
+    }
+
+    fn auto_save_interval(&self) -> Duration {
+        if self.auto_save {
+            Duration::from_secs(0)
+        } else {
+            Duration::from_secs(30)
+        }
     }
 }
