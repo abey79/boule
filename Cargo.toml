@@ -4,10 +4,11 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-eframe = "0.27.2"
-egui = "0.27.2"
+eframe = { version = "0.27.2" , features = ["persistence", "serde", "ron"] }
+egui = { version = "0.27.2", features = ["persistence"] }
 env_logger = "0.11.3"
-rand = { version = "0.8.5" }
 getrandom = { version = "0.2.15" , features = ["js"] }
 log = "0.4.21"
+rand = { version = "0.8.5" }
+serde = { version = "1", features = ["derive", "rc"] }
 wasm-bindgen-futures = "0.4.42"

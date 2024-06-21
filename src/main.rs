@@ -1,7 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 #![allow(rustdoc::missing_crate_level_docs)] // it's an example
 
-use eframe::egui;
+use eframe::{egui, Storage};
 use egui::{vec2, Sense};
 use rand::seq::SliceRandom;
 use std::sync::Arc;
@@ -13,7 +13,17 @@ fn run_native() -> Result<(), eframe::Error> {
         viewport: egui::ViewportBuilder::default().with_inner_size([500.0, 500.0]),
         ..Default::default()
     };
-    eframe::run_native("boule", options, Box::new(|_cc| Box::<BouleApp>::default()))
+    eframe::run_native(
+        "boule",
+        options,
+        Box::new(|cc| {
+            Box::new(
+                cc.storage
+                    .and_then(|storage| eframe::get_value::<BouleApp>(storage, "__app__"))
+                    .unwrap_or_default(),
+            )
+        }),
+    )
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -28,7 +38,13 @@ fn run_web() -> Result<(), eframe::Error> {
             .start(
                 "the_canvas_id", // hardcode it
                 web_options,
-                Box::new(|_cc| Box::new(BouleApp::default())),
+                Box::new(|cc| {
+                    Box::new(
+                        cc.storage
+                            .and_then(|storage| eframe::get_value::<BouleApp>(storage, "__app__"))
+                            .unwrap_or_default(),
+                    )
+                }),
             )
             .await
             .expect("failed to start eframe");
@@ -94,7 +110,7 @@ impl BallStyle {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 enum Slot {
     Empty,
     Ball(usize),
@@ -115,6 +131,7 @@ impl Slot {
     }
 }
 
+#[derive(serde::Deserialize, serde::Serialize)]
 struct State {
     column_count: usize,
     column_capacity: usize,
@@ -258,6 +275,7 @@ impl State {
     }
 }
 
+#[derive(serde::Deserialize, serde::Serialize)]
 struct BouleApp {
     column_count: usize,
     column_capacity: usize,
@@ -321,5 +339,9 @@ impl eframe::App for BouleApp {
                 self.state = None;
             }
         });
+    }
+
+    fn save(&mut self, storage: &mut dyn Storage) {
+        eframe::set_value(storage, "__app__", self);
     }
 }
