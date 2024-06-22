@@ -239,7 +239,7 @@ impl State {
                                 let (response, painter) =
                                     ui.allocate_painter(vec2(30.0, 30.0), Sense::drag());
 
-                                if is_top {
+                                if is_top && self.is_winning().is_none() {
                                     response.dnd_set_drag_payload(col);
                                 }
 
@@ -351,7 +351,7 @@ impl BouleApp {
         ui.vertical_centered(|ui| {
             ui.style_mut().wrap = Some(true);
 
-            ui.strong("Colors:");
+            ui.strong("Colors");
             let mut color_count = self.column_count.saturating_sub(1);
             selectable_label_range(ui, 3..=BallStyle::MAX_STYLES + 1, &mut color_count);
             self.column_count = color_count + 1;
@@ -363,7 +363,7 @@ impl BouleApp {
 
             ui.add_space(12.0);
 
-            if ui.button(egui::RichText::new("START").strong()).clicked() {
+            if ui.button(egui::RichText::new("PLAY").strong()).clicked() {
                 self.state = Some(State::new(self.column_count, self.column_capacity));
             }
 
@@ -405,9 +405,9 @@ fn game_ui(ui: &mut egui::Ui, state: &mut State) -> bool {
                     .strong(),
             );
             ui.add_space(12.0);
-            ui.button("Restart").clicked()
+            ui.button("PLAY AGAIN").clicked()
         } else {
-            ui.button("Abort").clicked()
+            ui.button("ABORT").clicked()
         };
 
         footer_ui(ui);
