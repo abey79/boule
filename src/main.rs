@@ -1,11 +1,15 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 #![allow(rustdoc::missing_crate_level_docs)] // it's an example
 
-use eframe::{egui, Storage};
+use std::{
+    collections::{BTreeSet, HashMap},
+    sync::Arc,
+    time::Duration,
+};
+
+use eframe::Storage;
 use egui::{vec2, NumExt, Sense};
 use rand::seq::SliceRandom;
-use std::sync::Arc;
-use std::time::Duration;
 
 #[cfg(not(target_arch = "wasm32"))]
 fn run_native() -> Result<(), eframe::Error> {
@@ -294,6 +298,8 @@ struct BouleApp {
     column_capacity: usize,
     state: Option<State>,
 
+    history: HashMap<(usize, usize), BTreeSet<usize>>,
+
     #[serde(skip)]
     auto_save: bool,
 }
@@ -304,6 +310,7 @@ impl Default for BouleApp {
             column_count: 7,
             column_capacity: 7,
             state: None,
+            history: HashMap::new(),
             auto_save: false,
         }
     }
@@ -312,23 +319,42 @@ impl Default for BouleApp {
 impl eframe::App for BouleApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
-            let old_self = self.clone();
+            egui::ScrollArea::vertical()
+                .auto_shrink(false)
+                .show(ui, |ui| {
+                    let old_self = self.clone();
 
-            let reset = if let Some(state) = &mut self.state {
-                game_ui(ui, state)
-            } else {
-                self.setup_ui(ui);
-                false
-            };
+                    let reset = if self.state.is_some() {
+                        self.game_ui(ui)
+                    } else {
+                        self.setup_ui(ui);
+                        false
+                    };
 
-            if reset {
-                self.state = None;
-            }
+                    if reset {
+                        self.state = None;
+                    }
 
-            // aggressive auto-save
-            if *self != old_self {
-                self.auto_save = true;
-            }
+                    // save history upon winning
+                    if old_self
+                        .state
+                        .as_ref()
+                        .and_then(|s| s.is_winning())
+                        .is_none()
+                    {
+                        if let Some(play_count) = self.state.as_ref().and_then(|s| s.is_winning()) {
+                            self.history
+                                .entry((self.column_count, self.column_capacity))
+                                .or_default()
+                                .insert(play_count);
+                        }
+                    }
+
+                    // aggressive auto-save
+                    if *self != old_self {
+                        self.auto_save = true;
+                    }
+                });
         });
     }
 
@@ -353,7 +379,7 @@ impl BouleApp {
 
             ui.strong("Colors");
             let mut color_count = self.column_count.saturating_sub(1);
-            selectable_label_range(ui, 3..=BallStyle::MAX_STYLES + 1, &mut color_count);
+            selectable_label_range(ui, 3..=BallStyle::MAX_STYLES, &mut color_count);
             self.column_count = color_count + 1;
 
             ui.add_space(12.0);
@@ -367,7 +393,76 @@ impl BouleApp {
                 self.state = Some(State::new(self.column_count, self.column_capacity));
             }
 
+            self.history_ui(ui, None);
+
             footer_ui(ui);
+        });
+    }
+
+    fn game_ui(&mut self, ui: &mut egui::Ui) -> bool {
+        ui.vertical_centered(|ui| {
+            let Some(state) = &mut self.state else {
+                return false;
+            };
+
+            state.ui(ui);
+
+            ui.add_space(12.0);
+
+            let reset = if let Some(play_count) = state.is_winning() {
+                ui.label(
+                    egui::RichText::new(format!("You won in {} moves!", play_count))
+                        .color(egui::Color32::RED)
+                        .size(24.0)
+                        .strong(),
+                );
+                ui.add_space(12.0);
+                let reset = ui.button("PLAY AGAIN").clicked();
+
+                self.history_ui(ui, Some(play_count));
+
+                reset
+            } else {
+                ui.button("ABORT").clicked()
+            };
+
+            footer_ui(ui);
+
+            reset
+        })
+        .inner
+    }
+
+    fn history_ui(&self, ui: &mut egui::Ui, this_play_count: Option<usize>) {
+        let width = 100.0.at_most(ui.available_width());
+        ui.allocate_ui(vec2(width, 0.0), |ui| {
+            if let Some(history) = self.history.get(&(self.column_count, self.column_capacity)) {
+                ui.add_space(12.0);
+                egui::Frame {
+                    stroke: ui.visuals().widgets.noninteractive.bg_stroke,
+                    ..Default::default()
+                }
+                .show(ui, |ui| {
+                    ui.add_space(6.0);
+                    ui.strong(format!(
+                        "TOP 10 ({}x{})",
+                        self.column_count.saturating_sub(1),
+                        self.column_capacity
+                    ));
+
+                    ui.separator();
+
+                    for play_count in history.iter().take(10) {
+                        let mut text = egui::RichText::new(format!("{} moves", play_count));
+                        if Some(*play_count) == this_play_count {
+                            text = text.strong();
+                        }
+                        ui.label(text);
+                    }
+
+                    ui.add_space(6.0);
+                });
+            }
         });
     }
 }
@@ -391,37 +486,11 @@ fn selectable_label_range(
     );
 }
 
-fn game_ui(ui: &mut egui::Ui, state: &mut State) -> bool {
-    ui.vertical_centered(|ui| {
-        state.ui(ui);
-
-        ui.add_space(12.0);
-
-        let reset = if let Some(play_count) = state.is_winning() {
-            ui.label(
-                egui::RichText::new(format!("You won in {} moves!", play_count))
-                    .color(egui::Color32::RED)
-                    .size(24.0)
-                    .strong(),
-            );
-            ui.add_space(12.0);
-            ui.button("PLAY AGAIN").clicked()
-        } else {
-            ui.button("ABORT").clicked()
-        };
-
-        footer_ui(ui);
-
-        reset
-    })
-    .inner
-}
-
 fn footer_ui(ui: &mut egui::Ui) {
     ui.add_space(20.0);
     ui.hyperlink_to(
-        egui::RichText::new("Made by abey79").weak(),
-        "https://twitter.com/abey79/",
+        egui::RichText::new("Made by @abey79").weak(),
+        "https://x.com/abey79/",
     );
 
     ui.hyperlink_to(
